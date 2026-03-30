@@ -1,9 +1,9 @@
 {
 	"id": "caldav-sync-plugin",
-	"name": "CalDAV sync plugin",
+	"name": "CalDAV Event Sync",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Sync all events between obsidian and calendar service using CalDAV",
+	"description": "Sync calendar-event notes with a CalDAV calendar, with PARA-friendly defaults.",
 	"author": "Petrov Ivan",
 	"authorUrl": "https://obsidian.md",
 	"fundingUrl": "https://obsidian.md/pricing",

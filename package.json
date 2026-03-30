@@ -1,11 +1,12 @@
 {
-	"name": "obsidian-sample-plugin",
+	"name": "obsidian-caldav-sync-plugin",
 	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "CalDAV calendar sync plugin for Obsidian with PARA-friendly event notes.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"check": "tsc -noEmit -skipLibCheck",
+		"build": "npm run check && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json"
 	},
 	"keywords": [],
@@ -22,6 +23,7 @@
 		"typescript": "4.7.4"
 	},
 	"dependencies": {
+		"obsidian-para-suite-contracts": "git+https://github.com/Xoanis/obsidian-para-suite-contracts.git#v0.1.1",
 		"ts-ics": "^2.1.7",
 		"uuid": "^11.1.0"
 	}
