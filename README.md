@@ -108,20 +108,7 @@ YYYY-MM-DD HH:mm-HH:mm [sync|nosync] Summary | Description | Location | 15m,1h |
 - При синхронизации события из Obsidian перезаписывают события в календаре. Будьте осторожны с изменениями, внесенными в календаре.
 - Убедитесь, что имена файлов событий не содержат недопустимых символов для файловой системы.
 - При отсутствии [`obsidian-telegram-bot`](https://github.com/Xoanis/obsidian-telegram-bot) Telegram-интеграция просто не активируется, а служебное поле `telegram_alarms_status` не создается.
-- При наличии [`PARA Core`](https://github.com/Xoanis/obsidian-para-core) плагин добавляет:
-  - template для `calendar-event`
-  - блок предстоящих событий в `Dashboard`
-  - секции предстоящих событий в `project` и `area`
-  - Telegram help/card contributions для project/area
 
-## Итоги Итерации
-
-В рамках этой итерации плагин стал заметно удобнее для ежедневного использования и устойчивее к ошибкам данных.
-
-- Создание события через модальное окно больше не уводит пользователя в новую заметку: работа продолжается в той note, из которой было вызвано окно.
-- Модальное окно стало удобнее: выбор даты и времени улучшен, добавлены live-валидация, подсветка ошибок, блокировка подтверждения при невалидном вводе и подсказки для `project`/`area`.
-- Поведение стало чище в standalone-режиме: без [`PARA Core`](https://github.com/Xoanis/obsidian-para-core) скрываются PARA-специфичные поля, а без [`obsidian-telegram-bot`](https://github.com/Xoanis/obsidian-telegram-bot) не активируются Telegram-функции и не пишется `telegram_alarms_status`.
-- Усилена устойчивость к corner cases: плагин мягко обрабатывает удаленные, поврежденные и невалидные event notes и не падает при `sync all`.
 
 ## Лицензия
 
