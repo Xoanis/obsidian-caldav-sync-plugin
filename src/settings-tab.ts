@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type ObsidianCalDAVPlugin from "../main";
 
 export class ObsidianCalDAVPluginSettingsTab extends PluginSettingTab {
@@ -20,28 +20,34 @@ export class ObsidianCalDAVPluginSettingsTab extends PluginSettingTab {
       .setDesc(
         'Vault folder for event notes in standalone mode. When PARA Core is available, events are stored automatically in "Records/Calendar/Events".',
       )
-      .addText((text) =>
+      .addText((text) => {
         text
           .setPlaceholder("Records/Calendar/Events")
-          .setValue(this.plugin.settings.eventsDirectory)
-          .onChange(async (value) => {
+          .setValue(this.plugin.settings.eventsDirectory);
+
+        this.bindTextSetting(text, {
+          getValue: () => this.plugin.settings.eventsDirectory,
+          setValue: (value) => {
             this.plugin.settings.eventsDirectory = value;
-            await this.plugin.saveSettings();
-          }),
-      );
+          },
+        });
+      });
 
     new Setting(containerEl)
       .setName("CalDAV username")
       .setDesc("Account login for your CalDAV provider. Yandex is one supported example.")
-      .addText((text) =>
+      .addText((text) => {
         text
           .setPlaceholder("username@example.com")
-          .setValue(this.plugin.settings.caldavUsername)
-          .onChange(async (value) => {
+          .setValue(this.plugin.settings.caldavUsername);
+
+        this.bindTextSetting(text, {
+          getValue: () => this.plugin.settings.caldavUsername,
+          setValue: (value) => {
             this.plugin.settings.caldavUsername = value;
-            await this.plugin.saveSettings();
-          }),
-      );
+          },
+        });
+      });
 
     new Setting(containerEl)
       .setName("CalDAV app password")
@@ -49,12 +55,15 @@ export class ObsidianCalDAVPluginSettingsTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder("App password")
-          .setValue(this.plugin.settings.caldavPassword)
-          .onChange(async (value) => {
-            this.plugin.settings.caldavPassword = value;
-            await this.plugin.saveSettings();
-          });
+          .setValue(this.plugin.settings.caldavPassword);
         text.inputEl.type = "password";
+
+        this.bindTextSetting(text, {
+          getValue: () => this.plugin.settings.caldavPassword,
+          setValue: (value) => {
+            this.plugin.settings.caldavPassword = value;
+          },
+        });
       });
 
     new Setting(containerEl)
@@ -62,14 +71,55 @@ export class ObsidianCalDAVPluginSettingsTab extends PluginSettingTab {
       .setDesc(
         "Full CalDAV calendar URL. Example for Yandex: https://caldav.yandex.ru/calendars/user@yandex.ru/calendar-id/",
       )
-      .addText((text) =>
+      .addText((text) => {
         text
           .setPlaceholder("https://caldav.example.com/calendars/...")
-          .setValue(this.plugin.settings.caldavCalendarUrl)
-          .onChange(async (value) => {
+          .setValue(this.plugin.settings.caldavCalendarUrl);
+
+        this.bindTextSetting(text, {
+          getValue: () => this.plugin.settings.caldavCalendarUrl,
+          setValue: (value) => {
             this.plugin.settings.caldavCalendarUrl = value;
-            await this.plugin.saveSettings();
-          }),
-      );
+          },
+        });
+      });
+  }
+
+  private bindTextSetting(
+    text: TextComponent,
+    options: {
+      getValue: () => string;
+      setValue: (value: string) => void;
+    },
+  ): void {
+    let draftValue = options.getValue();
+
+    const commit = async () => {
+      const currentValue = options.getValue();
+      if (draftValue === currentValue) {
+        return;
+      }
+
+      options.setValue(draftValue);
+      await this.plugin.saveSettings();
+    };
+
+    text.onChange((value) => {
+      draftValue = value;
+    });
+
+    text.inputEl.addEventListener("blur", () => {
+      void commit();
+    });
+
+    text.inputEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+
+      event.preventDefault();
+      text.inputEl.blur();
+      void commit();
+    });
   }
 }

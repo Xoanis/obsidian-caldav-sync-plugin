@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-caldav-sync-plugin",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"description": "CalDAV calendar sync plugin for Obsidian with PARA-friendly event notes.",
 	"main": "main.js",
 	"scripts": {

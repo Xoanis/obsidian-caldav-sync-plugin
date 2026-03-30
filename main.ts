@@ -153,11 +153,6 @@ export default class ObsidianCalDAVPlugin extends Plugin {
 
   private async syncAllEvents() {
     const eventFiles = this.eventNoteService.listEventFiles(this.getEventsDirectory());
-    if (eventFiles.length === 0) {
-      new Notice("No event notes found in the configured events folder.");
-      return;
-    }
-
     const localGuids = new Set<string>();
     let syncedCount = 0;
     let skippedCount = 0;
@@ -179,6 +174,11 @@ export default class ObsidianCalDAVPlugin extends Plugin {
 
     const calendar = await this.calDavSyncService.fetchCalendar();
     if (!calendar?.events?.length) {
+      if (eventFiles.length === 0 && skippedCount === 0) {
+        new Notice("No local event notes or remote calendar events found.");
+        return;
+      }
+
       new Notice(
         skippedCount > 0
           ? `Synced ${syncedCount} local event(s), skipped ${skippedCount} invalid or missing note(s).`
