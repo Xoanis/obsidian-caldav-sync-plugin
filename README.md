@@ -13,7 +13,7 @@
 
 ## Установка
 
-1. Скачайте последнюю версию плагина из [репозитория](https://github.com/your-repo/obsidian-caldav).
+1. Скачайте последнюю версию плагина из [GitHub Releases](https://github.com/Xoanis/obsidian-caldav-sync-plugin/releases).
 2. Распакуйте архив в папку `.obsidian/plugins` вашего хранилища Obsidian.
 3. Перезапустите Obsidian или перезагрузите плагины.
 4. Включите плагин в настройках Obsidian.
@@ -21,7 +21,7 @@
 ## Настройка
 
 1. Откройте настройки плагина в Obsidian.
-2. Укажите директорию, в которой будут храниться файлы событий. Для общей экосистемы рекомендуем `Inbox/Events`.
+2. В standalone-режиме укажите директорию, в которой будут храниться файлы событий. По умолчанию используется `Records/Calendar/Events`. Если установлен [`PARA Core`](https://github.com/Xoanis/obsidian-para-core), плагин автоматически хранит события в `Records/Calendar/Events`.
 3. Введите логин вашего CalDAV-провайдера.
 4. Введите пароль приложения или другой provider-specific secret.
 5. Введите URL вашего CalDAV-календаря. Для Яндекс.Календаря он имеет вид `https://caldav.yandex.ru/calendars/user@yandex.ru/id-календаря/`.

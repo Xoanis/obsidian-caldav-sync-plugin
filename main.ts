@@ -14,7 +14,11 @@ import {
 } from "./src/settings";
 import { CalDavSyncService } from "./src/services/caldav-sync-service";
 import { EventNoteService } from "./src/services/event-note-service";
-import { CALENDAR_EVENT_TYPE, validateCalendarEventInput } from "./src/calendar-event";
+import {
+  CALENDAR_EVENT_TYPE,
+  validateCalendarEventInput,
+  type CalendarSyncResult,
+} from "./src/calendar-event";
 import { CreateEventModal, type CreateEventModalResult } from "./src/ui/create-event-modal";
 
 export default class ObsidianCalDAVPlugin extends Plugin {
@@ -164,8 +168,9 @@ export default class ObsidianCalDAVPlugin extends Plugin {
         localGuids.add(guid);
       }
 
-      const synced = await this.syncEventFile(file, false);
-      if (synced) {
+      const syncResult = await this.syncEventFile(file, false);
+      if (syncResult) {
+        localGuids.add(syncResult.guid);
         syncedCount += 1;
       } else {
         skippedCount += 1;
@@ -207,13 +212,16 @@ export default class ObsidianCalDAVPlugin extends Plugin {
     ].filter(Boolean).join(", "));
   }
 
-  private async syncEventFile(file: TFile, showSuccessNotice: boolean): Promise<boolean> {
+  private async syncEventFile(
+    file: TFile,
+    showSuccessNotice: boolean,
+  ): Promise<CalendarSyncResult | null> {
     const event = await this.eventNoteService.readEventFile(file);
     if (!event) {
       if (showSuccessNotice) {
         new Notice(`Could not read event note: ${file.basename}`);
       }
-      return false;
+      return null;
     }
 
     const validationIssues = validateCalendarEventInput(event);
@@ -221,7 +229,7 @@ export default class ObsidianCalDAVPlugin extends Plugin {
       if (showSuccessNotice) {
         new Notice(`Cannot sync "${file.basename}": ${validationIssues[0]}`);
       }
-      return false;
+      return null;
     }
 
     const syncResult = await this.calDavSyncService.syncEvent(event);
@@ -229,7 +237,7 @@ export default class ObsidianCalDAVPlugin extends Plugin {
       if (showSuccessNotice) {
         new Notice(`Failed to sync event: ${file.basename}`);
       }
-      return false;
+      return null;
     }
 
     try {
@@ -239,14 +247,14 @@ export default class ObsidianCalDAVPlugin extends Plugin {
       if (showSuccessNotice) {
         new Notice(`Event synced remotely, but the local note is missing: ${file.basename}`);
       }
-      return true;
+      return syncResult;
     }
 
     if (showSuccessNotice) {
       new Notice(`Synced event: ${file.basename}`);
     }
 
-    return true;
+    return syncResult;
   }
 
   private async createEventFromModal(): Promise<void> {

@@ -13,6 +13,7 @@ import {
 } from "../calendar-event";
 import type { ObsidianCalDavPluginSettings } from "../settings";
 import { normalizeAlarmTokens, toIcsAlarm } from "../alarm";
+import { parseCalendarEventResponse, parseCalendarResponse } from "./caldav-response";
 
 export class CalDavSyncService {
   constructor(
@@ -78,21 +79,46 @@ export class CalDavSyncService {
       return null;
     }
 
+    const calendarUrl = this.buildCalendarRootUrl(settings.caldavCalendarUrl);
+    const auth = this.buildBasicAuth(settings.caldavUsername, settings.caldavPassword);
+
     try {
-      const response = await requestUrl({
-        url: this.buildCalendarRootUrl(settings.caldavCalendarUrl),
-        method: "PROPFIND",
+      const directResponse = await requestUrl({
+        url: calendarUrl,
+        method: "GET",
         headers: {
-          Authorization: `Basic ${this.buildBasicAuth(settings.caldavUsername, settings.caldavPassword)}`,
+          Authorization: `Basic ${auth}`,
         },
       });
 
-      if (!String(response.status).startsWith("2")) {
-        console.error("CalDAV Event Sync: calendar fetch failed", response.status);
+      if (String(directResponse.status).startsWith("2")) {
+        const directCalendar = parseCalendarResponse(directResponse.text);
+        if (directCalendar) {
+          return directCalendar;
+        }
+      }
+    } catch (error) {
+      console.warn("CalDAV Event Sync: direct calendar fetch failed", error);
+    }
+
+    try {
+      const reportResponse = await requestUrl({
+        url: calendarUrl,
+        method: "REPORT",
+        headers: {
+          Authorization: `Basic ${auth}`,
+          Depth: "1",
+          "Content-Type": "application/xml; charset=utf-8",
+        },
+        body: buildCalendarQueryBody(),
+      });
+
+      if (!String(reportResponse.status).startsWith("2")) {
+        console.error("CalDAV Event Sync: calendar fetch failed", reportResponse.status);
         return null;
       }
 
-      return convertIcsCalendar(undefined, response.text);
+      return parseCalendarResponse(reportResponse.text);
     } catch (error) {
       console.error("CalDAV Event Sync: calendar fetch failed", error);
       return null;
@@ -156,7 +182,7 @@ export class CalDavSyncService {
       try {
         const response = await requestUrl({
           url: candidateUrl,
-          method: "PROPFIND",
+          method: "GET",
           headers: {
             Authorization: `Basic ${auth}`,
           },
@@ -166,10 +192,10 @@ export class CalDavSyncService {
           continue;
         }
 
-        const syncedCalendar = convertIcsCalendar(undefined, response.text);
+        const syncedEvent = parseCalendarEventResponse(response.text);
         return {
           guid,
-          url: syncedCalendar.events?.[0]?.url,
+          url: syncedEvent?.url,
         };
       } catch (error) {
         console.warn(
@@ -198,4 +224,21 @@ export class CalDavSyncService {
         settings.caldavCalendarUrl.trim(),
     );
   }
+}
+
+function buildCalendarQueryBody(): string {
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">',
+    "  <d:prop>",
+    "    <d:getetag />",
+    "    <c:calendar-data />",
+    "  </d:prop>",
+    "  <c:filter>",
+    '    <c:comp-filter name="VCALENDAR">',
+    '      <c:comp-filter name="VEVENT" />',
+    "    </c:comp-filter>",
+    "  </c:filter>",
+    "</c:calendar-query>",
+  ].join("\n");
 }

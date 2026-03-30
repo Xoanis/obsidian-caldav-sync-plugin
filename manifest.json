@@ -5,7 +5,6 @@
 	"minAppVersion": "0.15.0",
 	"description": "Sync calendar-event notes with a CalDAV calendar, with PARA-friendly defaults.",
 	"author": "Petrov Ivan",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"authorUrl": "https://github.com/Xoanis",
 	"isDesktopOnly": false
 }

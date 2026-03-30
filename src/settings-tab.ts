@@ -18,11 +18,11 @@ export class ObsidianCalDAVPluginSettingsTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Events folder")
       .setDesc(
-        'Vault folder for event notes. "Inbox/Events" works best with PARA Core and the shared workspace model.',
+        'Vault folder for event notes in standalone mode. When PARA Core is available, events are stored automatically in "Records/Calendar/Events".',
       )
       .addText((text) =>
         text
-          .setPlaceholder("Inbox/Events")
+          .setPlaceholder("Records/Calendar/Events")
           .setValue(this.plugin.settings.eventsDirectory)
           .onChange(async (value) => {
             this.plugin.settings.eventsDirectory = value;

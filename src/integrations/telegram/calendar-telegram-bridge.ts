@@ -255,36 +255,43 @@ export class CalendarTelegramBridge {
       };
     }
 
-    const created = await this.deps.eventNoteService.createEventFile(this.deps.getEventsDirectory(), {
-      ...parsed,
-      ...relationOverrides,
-    }, {
-      includeTelegramAlarmStatus: true,
-    });
+    try {
+      const created = await this.deps.eventNoteService.createEventFile(this.deps.getEventsDirectory(), {
+        ...parsed,
+        ...relationOverrides,
+      }, {
+        includeTelegramAlarmStatus: true,
+      });
 
-    let synced = false;
-    if (parsed.syncWithCalendar) {
-      const event = await this.deps.eventNoteService.readEventFile(created);
-      if (event) {
-        const syncResult = await this.deps.calDavSyncService.syncEvent(event);
-        if (syncResult) {
-          await this.deps.eventNoteService.updateSyncMetadata(created, syncResult.guid, syncResult.url);
-          synced = true;
+      let synced = false;
+      if (parsed.syncWithCalendar) {
+        const event = await this.deps.eventNoteService.readEventFile(created);
+        if (event) {
+          const syncResult = await this.deps.calDavSyncService.syncEvent(event);
+          if (syncResult) {
+            await this.deps.eventNoteService.updateSyncMetadata(created, syncResult.guid, syncResult.url);
+            synced = true;
+          }
         }
       }
-    }
 
-    return {
-      processed: true,
-      answer: [
-        `Created event: ${created.basename}`,
-        parsed.syncWithCalendar
-          ? synced
-            ? "Calendar sync: done."
-            : "Calendar sync: failed."
-          : "Calendar sync: skipped.",
-      ].join("\n"),
-    };
+      return {
+        processed: true,
+        answer: [
+          `Created event: ${created.basename}`,
+          parsed.syncWithCalendar
+            ? synced
+              ? "Calendar sync: done."
+              : "Calendar sync: failed."
+            : "Calendar sync: skipped.",
+        ].join("\n"),
+      };
+    } catch (error) {
+      return {
+        processed: true,
+        answer: error instanceof Error ? error.message : "Failed to create event.",
+      };
+    }
   }
 
   private async renderUpcomingEventsMessage(
