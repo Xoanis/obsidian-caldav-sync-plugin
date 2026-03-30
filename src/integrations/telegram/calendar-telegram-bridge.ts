@@ -32,8 +32,6 @@ interface CalendarTelegramBridgeDeps {
   eventNoteService: EventNoteService;
   calDavSyncService: CalDavSyncService;
   getEventsDirectory: () => string;
-  getReminderState: () => Record<string, number>;
-  saveReminderState: (state: Record<string, number>) => Promise<void>;
 }
 
 interface CallbackTokenState {
@@ -86,8 +84,6 @@ export class CalendarTelegramBridge {
     }
 
     const files = this.deps.eventNoteService.listEventFiles(this.deps.getEventsDirectory());
-    const reminderState = { ...this.deps.getReminderState() };
-    let changed = false;
     const now = Date.now();
 
     for (const file of files) {
@@ -101,25 +97,22 @@ export class CalendarTelegramBridge {
         continue;
       }
 
-      for (const alarm of normalizeAlarmTokens(event.alarm)) {
+      const normalizedAlarms = normalizeAlarmTokens(event.alarm);
+      let alarmStatuses = await this.deps.eventNoteService.ensureAlarmStatuses(file);
+
+      for (const [alarmIndex, alarm] of normalizedAlarms.entries()) {
         const triggerTimestamp = getAlarmTriggerTimestamp(startTimestamp, alarm);
         if (triggerTimestamp === null || triggerTimestamp > now) {
           continue;
         }
 
-        const reminderKey = buildReminderKey(file, event, alarm);
-        if (reminderState[reminderKey]) {
+        if (alarmStatuses[alarmIndex] !== "pending") {
           continue;
         }
 
         await this.api.sendMessage(renderReminderMessage(file, event, alarm));
-        reminderState[reminderKey] = now;
-        changed = true;
+        alarmStatuses = await this.deps.eventNoteService.updateAlarmStatus(file, alarmIndex, "sent");
       }
-    }
-
-    if (changed) {
-      await this.deps.saveReminderState(pruneReminderState(reminderState, now));
     }
   }
 
@@ -554,21 +547,6 @@ function renderReminderMessage(
   }
 
   return lines.join("\n");
-}
-
-function buildReminderKey(file: TFile, event: CalendarEventNote, alarm: string): string {
-  return [
-    event.guid || file.path,
-    event.date,
-    event.start_time || "",
-    alarm,
-  ].join("|");
-}
-
-function pruneReminderState(state: Record<string, number>, now: number): Record<string, number> {
-  return Object.fromEntries(
-    Object.entries(state).filter(([, timestamp]) => now - timestamp < 1000 * 60 * 60 * 24 * 14),
-  );
 }
 
 function getEventStartTimestamp(event: CalendarEventNote): number | null {

@@ -7,12 +7,9 @@ import type { IParaCoreApi, RegisteredParaDomain } from "./src/integrations/para
 import { CalendarTelegramBridge } from "./src/integrations/telegram/calendar-telegram-bridge";
 import { ObsidianCalDAVPluginSettingsTab } from "./src/settings-tab";
 import {
-  DEFAULT_STATE,
   DEFAULT_SETTINGS,
-  loadCalDavState,
   loadCalDavSettings,
   saveCalDavSettings,
-  type ObsidianCalDavPluginState,
   type ObsidianCalDavPluginSettings,
 } from "./src/settings";
 import { CalDavSyncService } from "./src/services/caldav-sync-service";
@@ -22,7 +19,6 @@ import { CreateEventModal, type CreateEventModalResult } from "./src/ui/create-e
 
 export default class ObsidianCalDAVPlugin extends Plugin {
   settings: ObsidianCalDavPluginSettings = DEFAULT_SETTINGS;
-  state: ObsidianCalDavPluginState = DEFAULT_STATE;
 
   private paraCoreApi: IParaCoreApi | null = null;
   private calendarDomain: RegisteredParaDomain | null = null;
@@ -59,16 +55,15 @@ export default class ObsidianCalDAVPlugin extends Plugin {
   async loadSettings() {
     const data = await this.loadData();
     this.settings = loadCalDavSettings(data);
-    this.state = loadCalDavState(data);
+
+    if (data && typeof data === "object" && "sentReminderKeys" in (data as Record<string, unknown>)) {
+      await saveCalDavSettings(this, this.settings);
+    }
   }
 
   async saveSettings() {
-    await saveCalDavSettings(this, this.settings, this.state);
+    await saveCalDavSettings(this, this.settings);
     await this.ensureEventsFolder();
-  }
-
-  async savePluginData() {
-    await saveCalDavSettings(this, this.settings, this.state);
   }
 
   private registerCommands() {
@@ -290,11 +285,6 @@ export default class ObsidianCalDAVPlugin extends Plugin {
       eventNoteService: this.eventNoteService,
       calDavSyncService: this.calDavSyncService,
       getEventsDirectory: () => this.getEventsDirectory(),
-      getReminderState: () => this.state.sentReminderKeys,
-      saveReminderState: async (sentReminderKeys) => {
-        this.state.sentReminderKeys = sentReminderKeys;
-        await this.savePluginData();
-      },
     });
 
     const registered = this.telegramBridge.register();

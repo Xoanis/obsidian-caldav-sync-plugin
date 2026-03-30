@@ -1,3 +1,5 @@
+import type { AlarmDeliveryStatus } from "./alarm";
+
 export const CALENDAR_EVENT_TYPE = "calendar-event";
 export const CALENDAR_DOMAIN_ID = "calendar";
 export const DEFAULT_CALENDAR_RECORDS_PATH = "Calendar";
@@ -15,6 +17,7 @@ export interface CalendarEventNote {
   status?: string;
   created?: string;
   alarm?: string[];
+  alarms_status?: AlarmDeliveryStatus[];
   project?: string;
   area?: string;
 }
@@ -36,6 +39,7 @@ export interface CreateCalendarEventInput {
   status?: string;
   created?: string;
   alarm?: string[];
+  alarms_status?: AlarmDeliveryStatus[];
   project?: string;
   area?: string;
 }

@@ -39,11 +39,13 @@
    - Рекомендуется: `summary: "Заголовок события для календаря"`
    - Опционально: `start_time: "HH:mm"`, `end_time: "HH:mm"`, `location: "Место"`, `url: "Ссылка"`, `guid: "remote-id"`, `project: "[[Project]]"`, `area: "[[Area]]"`
    - Напоминания: `alarm: ["15m", "1h", "1d"]`
+   - Служебный статус напоминаний: `alarms_status: ["pending", "sent"]`
 3. Напишите описание события в теле заметки.
 4. Выполните команду `Create new calendar event`, если хотите создать событие через modal-форму.
 5. Выполните команду `Sync event with calendar` для синхронизации текущего события или `Sync all events with calendar` для синхронизации всех событий.
 
 Поле `summary` используется для CalDAV-синхронизации как заголовок события. Если `summary` не задано, плагин использует имя заметки как fallback.
+Поле `alarms_status` поддерживается плагином автоматически и соответствует списку `alarm` по индексам. Для каждого alarm хранится либо `pending`, либо `sent`.
 
 Минимальный пример:
 
@@ -58,6 +60,7 @@ start_time: "10:00"
 end_time: "11:00"
 location: "Online"
 alarm: ["15m", "1h"]
+alarms_status: ["pending", "pending"]
 tags: []
 ---
 ```

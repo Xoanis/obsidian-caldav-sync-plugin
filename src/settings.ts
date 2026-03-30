@@ -8,10 +8,6 @@ export interface ObsidianCalDavPluginSettings {
   caldavCalendarUrl: string;
 }
 
-export interface ObsidianCalDavPluginState {
-  sentReminderKeys: Record<string, number>;
-}
-
 interface LegacySettingsShape {
   eventsDirectory?: unknown;
   caldavUsername?: unknown;
@@ -20,7 +16,6 @@ interface LegacySettingsShape {
   yandexUsername?: unknown;
   yandexAppPassword?: unknown;
   yandexCalendarUrl?: unknown;
-  sentReminderKeys?: unknown;
 }
 
 export const DEFAULT_SETTINGS: ObsidianCalDavPluginSettings = {
@@ -28,10 +23,6 @@ export const DEFAULT_SETTINGS: ObsidianCalDavPluginSettings = {
   caldavUsername: "",
   caldavPassword: "",
   caldavCalendarUrl: "",
-};
-
-export const DEFAULT_STATE: ObsidianCalDavPluginState = {
-  sentReminderKeys: {},
 };
 
 export function loadCalDavSettings(data: unknown): ObsidianCalDavPluginSettings {
@@ -55,35 +46,15 @@ export function loadCalDavSettings(data: unknown): ObsidianCalDavPluginSettings 
 export async function saveCalDavSettings(
   plugin: Plugin,
   settings: ObsidianCalDavPluginSettings,
-  state: ObsidianCalDavPluginState = DEFAULT_STATE,
 ): Promise<void> {
   await plugin.saveData({
     eventsDirectory: settings.eventsDirectory.trim() || DEFAULT_SETTINGS.eventsDirectory,
     caldavUsername: settings.caldavUsername.trim(),
     caldavPassword: settings.caldavPassword.trim(),
     caldavCalendarUrl: settings.caldavCalendarUrl.trim(),
-    sentReminderKeys: state.sentReminderKeys,
   });
-}
-
-export function loadCalDavState(data: unknown): ObsidianCalDavPluginState {
-  const raw = (data ?? {}) as LegacySettingsShape;
-  return {
-    sentReminderKeys: readNumberRecord(raw.sentReminderKeys),
-  };
 }
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function readNumberRecord(value: unknown): Record<string, number> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([, item]) => typeof item === "number" && Number.isFinite(item)),
-  );
 }

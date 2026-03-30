@@ -16,7 +16,13 @@ import {
   type CalendarEventNote,
   type CreateCalendarEventInput,
 } from "../calendar-event";
-import { fromIcsEventAlarms, normalizeAlarmTokens } from "../alarm";
+import {
+  buildPendingAlarmStatuses,
+  fromIcsEventAlarms,
+  normalizeAlarmStatuses,
+  normalizeAlarmTokens,
+  type AlarmDeliveryStatus,
+} from "../alarm";
 
 export interface UpcomingCalendarEvent {
   file: TFile;
@@ -52,6 +58,7 @@ export class EventNoteService {
     await this.ensureFolder(eventsDirectory);
 
     const normalizedSummary = getCalendarEventSummary(input.summary, "Untitled event");
+    const normalizedAlarms = normalizeAlarmTokens(input.alarm);
     const frontmatter: Record<string, unknown> = {
       type: CALENDAR_EVENT_TYPE,
       domain: CALENDAR_DOMAIN_ID,
@@ -64,7 +71,8 @@ export class EventNoteService {
       location: input.location?.trim() || null,
       url: input.url?.trim() || null,
       guid: input.guid?.trim() || null,
-      alarm: normalizeAlarmTokens(input.alarm),
+      alarm: normalizedAlarms,
+      alarms_status: normalizeAlarmStatuses(input.alarms_status, normalizedAlarms.length),
       project: normalizeWikiLink(input.project),
       area: normalizeWikiLink(input.area),
       tags: [],
@@ -102,6 +110,7 @@ export class EventNoteService {
     }
 
     await this.ensureFolder(eventsDirectory);
+    const normalizedAlarms = fromIcsEventAlarms(remoteEvent);
 
     const props: Record<string, unknown> = {
       type: CALENDAR_EVENT_TYPE,
@@ -113,7 +122,8 @@ export class EventNoteService {
       guid: remoteEvent.uid,
       url: remoteEvent.url,
       location: remoteEvent.location ?? null,
-      alarm: fromIcsEventAlarms(remoteEvent),
+      alarm: normalizedAlarms,
+      alarms_status: buildPendingAlarmStatuses(normalizedAlarms.length),
       tags: [],
     };
 
@@ -201,6 +211,40 @@ export class EventNoteService {
     });
   }
 
+  async ensureAlarmStatuses(file: TFile): Promise<AlarmDeliveryStatus[]> {
+    let nextStatuses: AlarmDeliveryStatus[] = [];
+
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      const normalizedAlarms = normalizeAlarmTokens(frontmatter.alarm);
+      nextStatuses = normalizeAlarmStatuses(frontmatter.alarms_status, normalizedAlarms.length);
+
+      if (!areStatusListsEqual(frontmatter.alarms_status, nextStatuses)) {
+        frontmatter.alarms_status = nextStatuses;
+      }
+    });
+
+    return nextStatuses;
+  }
+
+  async updateAlarmStatus(
+    file: TFile,
+    alarmIndex: number,
+    status: AlarmDeliveryStatus,
+  ): Promise<AlarmDeliveryStatus[]> {
+    let nextStatuses: AlarmDeliveryStatus[] = [];
+
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      const normalizedAlarms = normalizeAlarmTokens(frontmatter.alarm);
+      nextStatuses = normalizeAlarmStatuses(frontmatter.alarms_status, normalizedAlarms.length);
+      if (alarmIndex >= 0 && alarmIndex < nextStatuses.length) {
+        nextStatuses[alarmIndex] = status;
+      }
+      frontmatter.alarms_status = nextStatuses;
+    });
+
+    return nextStatuses;
+  }
+
   async ensureFolder(folderPath: string): Promise<void> {
     const normalized = normalizePath(folderPath);
     if (!normalized) {
@@ -247,6 +291,8 @@ export function tryCreateCalendarEvent(
     return null;
   }
 
+  const normalizedAlarms = normalizeAlarmTokens(frontmatter.alarm);
+
   return {
     date: frontmatter.date,
     start_time: readString(frontmatter.start_time),
@@ -258,7 +304,8 @@ export function tryCreateCalendarEvent(
     guid: readString(frontmatter.guid),
     status: readString(frontmatter.status),
     created: readString(frontmatter.created),
-    alarm: normalizeAlarmTokens(frontmatter.alarm),
+    alarm: normalizedAlarms,
+    alarms_status: normalizeAlarmStatuses(frontmatter.alarms_status, normalizedAlarms.length),
     project: normalizeWikiLink(readString(frontmatter.project)),
     area: normalizeWikiLink(readString(frontmatter.area)),
   };
@@ -334,4 +381,19 @@ function readFrontmatterFromContent(content: string): Record<string, unknown> | 
 
 function stripFrontmatter(content: string): string {
   return content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+}
+
+function areStatusListsEqual(
+  currentValue: unknown,
+  nextStatuses: AlarmDeliveryStatus[],
+): boolean {
+  if (!Array.isArray(currentValue)) {
+    return nextStatuses.length === 0;
+  }
+
+  if (currentValue.length !== nextStatuses.length) {
+    return false;
+  }
+
+  return currentValue.every((item, index) => item === nextStatuses[index]);
 }

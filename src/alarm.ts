@@ -1,6 +1,9 @@
 import type { IcsAlarm, IcsDuration, IcsEvent } from "ts-ics";
 
 const ALARM_PATTERN = /^(\d+)\s*(m|h|d|w)$/i;
+const ALARM_STATUS_VALUES = new Set(["pending", "sent"]);
+
+export type AlarmDeliveryStatus = "pending" | "sent";
 
 export interface ParsedAlarmToken {
   token: string;
@@ -31,6 +34,27 @@ export function parseAlarmToken(token: string): ParsedAlarmToken | null {
     amount: Number.parseInt(match[1], 10),
     unit: match[2].toLowerCase() as ParsedAlarmToken["unit"],
   };
+}
+
+export function normalizeAlarmStatuses(
+  value: unknown,
+  alarmCount: number,
+): AlarmDeliveryStatus[] {
+  const rawStatuses = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? [value]
+      : [];
+
+  const normalized = rawStatuses
+    .map((item) => (typeof item === "string" ? item.trim().toLowerCase() : ""))
+    .map((item) => (ALARM_STATUS_VALUES.has(item) ? item as AlarmDeliveryStatus : "pending"));
+
+  return Array.from({ length: alarmCount }, (_, index) => normalized[index] ?? "pending");
+}
+
+export function buildPendingAlarmStatuses(alarmCount: number): AlarmDeliveryStatus[] {
+  return Array.from({ length: alarmCount }, () => "pending");
 }
 
 export function toIcsAlarm(token: string, summary: string): IcsAlarm | null {

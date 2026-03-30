@@ -1,7 +1,7 @@
 import { stringifyYaml } from "obsidian";
 import type { BaseFrontmatter, NoteTypeDefinition, ValidationIssue } from "./types";
 import { CALENDAR_EVENT_TYPE } from "../../calendar-event";
-import { normalizeAlarmTokens } from "../../alarm";
+import { normalizeAlarmStatuses, normalizeAlarmTokens } from "../../alarm";
 
 interface CalendarEventFrontmatter extends BaseFrontmatter {
   type: "calendar-event";
@@ -14,6 +14,7 @@ interface CalendarEventFrontmatter extends BaseFrontmatter {
   url?: string | null;
   guid?: string | null;
   alarm?: string[] | null;
+  alarms_status?: string[] | null;
   project?: string | null;
   area?: string | null;
 }
@@ -39,6 +40,7 @@ export function getCalendarEventNoteType(): NoteTypeDefinition<CalendarEventFron
       url: null,
       guid: null,
       alarm: [],
+      alarms_status: [],
       project: null,
       area: null,
       tags: [],
@@ -55,6 +57,7 @@ export function getCalendarEventNoteType(): NoteTypeDefinition<CalendarEventFron
 - Location:
 - URL:
 - Alarm:
+- Alarm Status:
 - Project:
 - Area:
 
@@ -119,6 +122,38 @@ function validateCalendarEvent(
     issues.push({
       code: "invalid-calendar-alarm",
       message: "Calendar event 'alarm' should contain values like 15m, 1h, 1d, or 1w.",
+      severity: "warning",
+    });
+  }
+
+  const rawAlarmStatuses = Array.isArray(frontmatter.alarms_status)
+    ? frontmatter.alarms_status
+    : typeof frontmatter.alarms_status === "string"
+      ? [frontmatter.alarms_status]
+      : [];
+  const hasAlarmStatusesField =
+    frontmatter.alarms_status !== undefined && frontmatter.alarms_status !== null;
+  const normalizedAlarmStatuses = normalizeAlarmStatuses(
+    frontmatter.alarms_status,
+    normalizedAlarmTokens.length,
+  );
+
+  if (
+    hasAlarmStatusesField &&
+    rawAlarmStatuses.length > 0 &&
+    rawAlarmStatuses.some((status) => status !== "pending" && status !== "sent")
+  ) {
+    issues.push({
+      code: "invalid-calendar-alarm-status",
+      message: "Calendar event 'alarms_status' should contain only 'pending' or 'sent'.",
+      severity: "warning",
+    });
+  }
+
+  if (hasAlarmStatusesField && rawAlarmStatuses.length !== normalizedAlarmStatuses.length) {
+    issues.push({
+      code: "calendar-alarm-status-length-mismatch",
+      message: "Calendar event 'alarms_status' should mirror the normalized 'alarm' list one-to-one.",
       severity: "warning",
     });
   }
