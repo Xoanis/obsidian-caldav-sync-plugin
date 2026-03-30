@@ -1,25 +1,34 @@
-import { Notice, Plugin, TFile, normalizePath } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile, moment, normalizePath } from "obsidian";
 import { getParaCoreApi } from "./src/integrations/para-core/client";
 import { getCalendarEventNoteType } from "./src/integrations/para-core/calendar-note-type";
 import { registerCalendarTemplateContributions } from "./src/integrations/para-core/register-calendar-template-contributions";
-import type { IParaCoreApi } from "./src/integrations/para-core/types";
+import { registerCalendarDomain } from "./src/integrations/para-core/register-calendar-domain";
+import type { IParaCoreApi, RegisteredParaDomain } from "./src/integrations/para-core/types";
+import { CalendarTelegramBridge } from "./src/integrations/telegram/calendar-telegram-bridge";
 import { ObsidianCalDAVPluginSettingsTab } from "./src/settings-tab";
 import {
+  DEFAULT_STATE,
   DEFAULT_SETTINGS,
+  loadCalDavState,
   loadCalDavSettings,
   saveCalDavSettings,
+  type ObsidianCalDavPluginState,
   type ObsidianCalDavPluginSettings,
 } from "./src/settings";
 import { CalDavSyncService } from "./src/services/caldav-sync-service";
 import { EventNoteService } from "./src/services/event-note-service";
 import { CALENDAR_EVENT_TYPE } from "./src/calendar-event";
+import { CreateEventModal, type CreateEventModalResult } from "./src/ui/create-event-modal";
 
 export default class ObsidianCalDAVPlugin extends Plugin {
   settings: ObsidianCalDavPluginSettings = DEFAULT_SETTINGS;
+  state: ObsidianCalDavPluginState = DEFAULT_STATE;
 
   private paraCoreApi: IParaCoreApi | null = null;
+  private calendarDomain: RegisteredParaDomain | null = null;
   private eventNoteService!: EventNoteService;
   private calDavSyncService!: CalDavSyncService;
+  private telegramBridge: CalendarTelegramBridge | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -27,6 +36,7 @@ export default class ObsidianCalDAVPlugin extends Plugin {
     this.eventNoteService = new EventNoteService(this.app);
     this.calDavSyncService = new CalDavSyncService(() => this.settings);
     this.initializeParaCoreIntegration();
+    this.initializeTelegramIntegration();
 
     this.addSettingTab(new ObsidianCalDAVPluginSettingsTab(this.app, this));
     this.registerCommands();
@@ -34,23 +44,42 @@ export default class ObsidianCalDAVPlugin extends Plugin {
   }
 
   onunload() {
+    this.telegramBridge?.dispose();
     console.log("CalDAV Event Sync unloaded");
   }
 
   getEventsDirectory(): string {
+    if (this.calendarDomain) {
+      return `${this.calendarDomain.recordsPath}/Events`;
+    }
+
     return this.settings.eventsDirectory.trim() || DEFAULT_SETTINGS.eventsDirectory;
   }
 
   async loadSettings() {
-    this.settings = loadCalDavSettings(await this.loadData());
+    const data = await this.loadData();
+    this.settings = loadCalDavSettings(data);
+    this.state = loadCalDavState(data);
   }
 
   async saveSettings() {
-    await saveCalDavSettings(this, this.settings);
+    await saveCalDavSettings(this, this.settings, this.state);
     await this.ensureEventsFolder();
   }
 
+  async savePluginData() {
+    await saveCalDavSettings(this, this.settings, this.state);
+  }
+
   private registerCommands() {
+    this.addCommand({
+      id: "create-event",
+      name: "Create new calendar event",
+      callback: async () => {
+        await this.createEventFromModal();
+      },
+    });
+
     this.addCommand({
       id: "sync-event",
       name: "Sync event with calendar",
@@ -76,15 +105,16 @@ export default class ObsidianCalDAVPlugin extends Plugin {
 
   private initializeParaCoreIntegration() {
     this.paraCoreApi = getParaCoreApi(this.app);
+    this.calendarDomain = null;
     if (!this.paraCoreApi) {
       console.log("CalDAV Event Sync: PARA Core integration not available");
       return;
     }
 
-    this.paraCoreApi.registerNoteType(getCalendarEventNoteType());
+    this.calendarDomain = registerCalendarDomain(this.paraCoreApi);
     registerCalendarTemplateContributions(this.paraCoreApi, () => this.getEventsDirectory());
     void this.ensureCalendarEventTemplateFile();
-    console.log("CalDAV Event Sync: registered PARA Core note type and guideline contributions");
+    console.log("CalDAV Event Sync: registered PARA Core calendar domain and contributions");
   }
 
   private async ensureCalendarEventTemplateFile(): Promise<void> {
@@ -188,5 +218,93 @@ export default class ObsidianCalDAVPlugin extends Plugin {
     }
 
     return true;
+  }
+
+  private async createEventFromModal(): Promise<void> {
+    const sourceView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const sourceEditor = sourceView?.editor;
+    const sourceFile = sourceView?.file;
+    const initialValue = this.getCreateEventInitialValue(sourceFile ?? null);
+
+    new CreateEventModal(this.app, {
+      initialValue,
+      onSubmit: async (value) => {
+        await this.handleCreateEventModalSubmit(value, sourceEditor, sourceFile?.path);
+      },
+    }).open();
+  }
+
+  private getCreateEventInitialValue(activeFile: TFile | null): Partial<CreateEventModalResult> {
+    const today = moment().format("YYYY-MM-DD");
+    const frontmatter = activeFile
+      ? this.app.metadataCache.getFileCache(activeFile)?.frontmatter
+      : undefined;
+
+    if (frontmatter?.type === "project") {
+      return {
+        date: today,
+        project: `[[${activeFile?.basename}]]`,
+      };
+    }
+
+    if (frontmatter?.type === "area") {
+      return {
+        date: today,
+        area: `[[${activeFile?.basename}]]`,
+      };
+    }
+
+    return {
+      date: today,
+    };
+  }
+
+  private async handleCreateEventModalSubmit(
+    value: CreateEventModalResult,
+    sourceEditor: MarkdownView["editor"] | undefined,
+    sourcePath?: string,
+  ): Promise<void> {
+    const created = await this.eventNoteService.createEventFile(this.getEventsDirectory(), value);
+
+    if (sourceEditor && sourcePath !== created.path) {
+      sourceEditor.replaceSelection(`![[${created.path}]]`);
+    }
+
+    await this.app.workspace.getLeaf(true).openFile(created);
+
+    if (value.syncWithCalendar) {
+      const synced = await this.syncEventFile(created, false);
+      if (!synced) {
+        new Notice(`Event created, but calendar sync failed: ${created.basename}`);
+        return;
+      }
+    }
+
+    new Notice(`Created event: ${created.basename}`);
+  }
+
+  private initializeTelegramIntegration() {
+    this.telegramBridge = new CalendarTelegramBridge({
+      app: this.app,
+      paraCoreApi: this.paraCoreApi,
+      eventNoteService: this.eventNoteService,
+      calDavSyncService: this.calDavSyncService,
+      getEventsDirectory: () => this.getEventsDirectory(),
+      getReminderState: () => this.state.sentReminderKeys,
+      saveReminderState: async (sentReminderKeys) => {
+        this.state.sentReminderKeys = sentReminderKeys;
+        await this.savePluginData();
+      },
+    });
+
+    const registered = this.telegramBridge.register();
+    if (!registered) {
+      return;
+    }
+
+    this.registerInterval(window.setInterval(() => {
+      void this.telegramBridge?.checkDueReminders();
+    }, 60 * 1000));
+    void this.telegramBridge.checkDueReminders();
   }
 }

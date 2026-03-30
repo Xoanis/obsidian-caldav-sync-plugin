@@ -1,8 +1,14 @@
 import { moment, requestUrl } from "obsidian";
-import { convertIcsCalendar, generateIcsCalendar, type IcsCalendar, type IcsEvent } from "ts-ics";
+import {
+  convertIcsCalendar,
+  generateIcsCalendar,
+  type IcsCalendar,
+  type IcsEvent,
+} from "ts-ics";
 import { v4 as uuidv4 } from "uuid";
 import type { CalendarEventNote, CalendarSyncResult } from "../calendar-event";
 import type { ObsidianCalDavPluginSettings } from "../settings";
+import { normalizeAlarmTokens, toIcsAlarm } from "../alarm";
 
 export class CalDavSyncService {
   constructor(
@@ -99,6 +105,7 @@ export class CalDavSyncService {
         url: localEvent.url,
         start: { date: start, type: "DATE-TIME" },
         end: { date: end, type: "DATE-TIME" },
+        alarms: normalizeAlarmTokens(localEvent.alarm).map((token) => toIcsAlarm(token, localEvent.summary)).filter((alarm): alarm is NonNullable<typeof alarm> => Boolean(alarm)),
       };
     }
 
@@ -114,6 +121,7 @@ export class CalDavSyncService {
       url: localEvent.url,
       start: { date: start, type: "DATE" },
       end: { date: end, type: "DATE" },
+      alarms: normalizeAlarmTokens(localEvent.alarm).map((token) => toIcsAlarm(token, localEvent.summary)).filter((alarm): alarm is NonNullable<typeof alarm> => Boolean(alarm)),
     };
   }
 

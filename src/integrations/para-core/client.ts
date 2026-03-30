@@ -18,7 +18,7 @@ export function getParaCoreApi(app: App): IParaCoreApi | null {
     const api = plugin.getApi();
     if (
       !api ||
-      typeof api.registerNoteType !== "function" ||
+      typeof api.registerDomain !== "function" ||
       typeof api.registerTemplateContribution !== "function" ||
       typeof api.ensureFolder !== "function" ||
       typeof api.getFolderPath !== "function"

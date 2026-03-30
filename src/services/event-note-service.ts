@@ -2,12 +2,27 @@ import {
   TFile,
   moment,
   normalizePath,
+  parseYaml,
+  stringifyYaml,
   type App,
   type CachedMetadata,
-  type TAbstractFile,
 } from "obsidian";
 import type { IcsEvent } from "ts-ics";
-import { CALENDAR_EVENT_TYPE, type CalendarEventNote } from "../calendar-event";
+import {
+  buildCalendarEventFileName,
+  CALENDAR_EVENT_TYPE,
+  CALENDAR_DOMAIN_ID,
+  getCalendarEventSummary,
+  type CalendarEventNote,
+  type CreateCalendarEventInput,
+} from "../calendar-event";
+import { fromIcsEventAlarms, normalizeAlarmTokens } from "../alarm";
+
+export interface UpcomingCalendarEvent {
+  file: TFile;
+  event: CalendarEventNote;
+  startTimestamp: number;
+}
 
 export class EventNoteService {
   constructor(private readonly app: App) {}
@@ -28,6 +43,43 @@ export class EventNoteService {
     const metadata = this.app.metadataCache.getFileCache(file);
     const content = await this.app.vault.read(file);
     return tryCreateCalendarEvent(file.basename, metadata, content);
+  }
+
+  async createEventFile(
+    eventsDirectory: string,
+    input: CreateCalendarEventInput,
+  ): Promise<TFile> {
+    await this.ensureFolder(eventsDirectory);
+
+    const normalizedSummary = getCalendarEventSummary(input.summary, "Untitled event");
+    const frontmatter: Record<string, unknown> = {
+      type: CALENDAR_EVENT_TYPE,
+      domain: CALENDAR_DOMAIN_ID,
+      status: input.status?.trim() || "active",
+      created: input.created?.trim() || moment().format("YYYY-MM-DD"),
+      date: input.date,
+      summary: normalizedSummary,
+      start_time: input.start_time?.trim() || null,
+      end_time: input.end_time?.trim() || null,
+      location: input.location?.trim() || null,
+      url: input.url?.trim() || null,
+      guid: input.guid?.trim() || null,
+      alarm: normalizeAlarmTokens(input.alarm),
+      project: normalizeWikiLink(input.project),
+      area: normalizeWikiLink(input.area),
+      tags: [],
+    };
+    const fileName = buildCalendarEventFileName(
+      input.date,
+      input.start_time?.trim(),
+      normalizedSummary,
+    );
+    const filePath = this.buildUniqueMarkdownPath(eventsDirectory, fileName);
+
+    return this.app.vault.create(
+      filePath,
+      buildMarkdownFile(frontmatter, input.description?.trim() || ""),
+    );
   }
 
   async createEventFileFromRemoteEvent(
@@ -53,12 +105,15 @@ export class EventNoteService {
 
     const props: Record<string, unknown> = {
       type: CALENDAR_EVENT_TYPE,
+      domain: CALENDAR_DOMAIN_ID,
       status: "active",
       created: startMoment.format("YYYY-MM-DD"),
       date: startMoment.format("YYYY-MM-DD"),
+      summary: remoteEvent.summary,
       guid: remoteEvent.uid,
       url: remoteEvent.url,
       location: remoteEvent.location ?? null,
+      alarm: fromIcsEventAlarms(remoteEvent),
       tags: [],
     };
 
@@ -69,12 +124,65 @@ export class EventNoteService {
       }
     }
 
-    const safeFileName = remoteEvent.summary.replace(/[\/\\:*?"<>|]/g, "_").trim() || "Untitled event";
+    const safeFileName = buildCalendarEventFileName(
+      startMoment.format("YYYY-MM-DD"),
+      remoteEvent.start.type === "DATE-TIME" ? startMoment.format("HH:mm") : undefined,
+      remoteEvent.summary,
+    );
     const filePath = this.buildUniqueMarkdownPath(eventsDirectory, safeFileName);
     return this.app.vault.create(
       filePath,
       buildMarkdownFile(props, remoteEvent.description ?? ""),
     );
+  }
+
+  async listUpcomingEvents(
+    eventsDirectory: string,
+    options?: {
+      limit?: number;
+      project?: string;
+      area?: string;
+      includeDone?: boolean;
+    },
+  ): Promise<UpcomingCalendarEvent[]> {
+    const project = normalizeWikiLink(options?.project);
+    const area = normalizeWikiLink(options?.area);
+    const items = await Promise.all(
+      this.listEventFiles(eventsDirectory).map(async (file) => {
+        const event = await this.readEventFile(file);
+        if (!event) {
+          return null;
+        }
+
+        if (!options?.includeDone && event.status && event.status !== "active") {
+          return null;
+        }
+
+        if (project && event.project !== project) {
+          return null;
+        }
+
+        if (area && event.area !== area) {
+          return null;
+        }
+
+        const startTimestamp = getEventStartTimestamp(event);
+        if (startTimestamp === null || startTimestamp < Date.now()) {
+          return null;
+        }
+
+        return {
+          file,
+          event,
+          startTimestamp,
+        };
+      }),
+    );
+
+    return items
+      .filter((item): item is UpcomingCalendarEvent => item !== null)
+      .sort((left, right) => left.startTimestamp - right.startTimestamp)
+      .slice(0, options?.limit ?? 10);
   }
 
   async updateSyncMetadata(file: TFile, guid: string, url?: string): Promise<void> {
@@ -134,7 +242,7 @@ export function tryCreateCalendarEvent(
   metadata: CachedMetadata | null,
   content: string,
 ): CalendarEventNote | null {
-  const frontmatter = metadata?.frontmatter;
+  const frontmatter = metadata?.frontmatter ?? readFrontmatterFromContent(content);
   if (frontmatter?.type !== CALENDAR_EVENT_TYPE || typeof frontmatter.date !== "string") {
     return null;
   }
@@ -143,43 +251,33 @@ export function tryCreateCalendarEvent(
     date: frontmatter.date,
     start_time: readString(frontmatter.start_time),
     end_time: readString(frontmatter.end_time),
-    summary: filename,
+    summary: getCalendarEventSummary(readString(frontmatter.summary), filename),
     description: extractBodyContent(content, metadata),
     location: readString(frontmatter.location),
     url: readString(frontmatter.url),
     guid: readString(frontmatter.guid),
     status: readString(frontmatter.status),
     created: readString(frontmatter.created),
+    alarm: normalizeAlarmTokens(frontmatter.alarm),
+    project: normalizeWikiLink(readString(frontmatter.project)),
+    area: normalizeWikiLink(readString(frontmatter.area)),
   };
 }
 
 function extractBodyContent(content: string, metadata: CachedMetadata | null): string {
   const offset = metadata?.frontmatterPosition?.end.offset;
   if (typeof offset !== "number") {
-    return content.trim();
+    return stripFrontmatter(content).trim();
   }
 
   return content.slice(offset + 1).trim();
 }
 
 function buildMarkdownFile(frontmatter: Record<string, unknown>, content: string): string {
-  const yamlLines = Object.entries(frontmatter)
-    .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `${key}: ${serializeYamlValue(value)}`);
-
-  return `---\n${yamlLines.join("\n")}\n---\n\n${content}`.trimEnd();
-}
-
-function serializeYamlValue(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => JSON.stringify(item)).join(", ")}]`;
-  }
-
-  if (value === null) {
-    return "null";
-  }
-
-  return JSON.stringify(value);
+  const normalizedFrontmatter = Object.fromEntries(
+    Object.entries(frontmatter).filter(([, value]) => value !== undefined),
+  );
+  return `---\n${stringifyYaml(normalizedFrontmatter).trimEnd()}\n---\n\n${content}`.trimEnd();
 }
 
 function readString(value: unknown): string | undefined {
@@ -189,4 +287,51 @@ function readString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function normalizeWikiLink(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (/^\[\[.*\]\]$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `[[${trimmed}]]`;
+}
+
+function getEventStartTimestamp(event: CalendarEventNote): number | null {
+  const startMoment = event.start_time
+    ? moment(`${event.date} ${event.start_time}`, "YYYY-MM-DD HH:mm", true)
+    : moment(event.date, "YYYY-MM-DD", true).startOf("day");
+
+  if (!startMoment.isValid()) {
+    return null;
+  }
+
+  return startMoment.valueOf();
+}
+
+function readFrontmatterFromContent(content: string): Record<string, unknown> | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    const parsed = parseYaml(match[1]);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function stripFrontmatter(content: string): string {
+  return content.replace(/^---\n[\s\S]*?\n---\n?/, "");
 }

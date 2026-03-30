@@ -9,7 +9,7 @@
 
 - локальная заметка может обновить удалённое событие
 - удалённые события могут быть импортированы в папку событий
-- при наличии `PARA Core` тип `calendar-event` регистрируется через публичный API
+- при наличии `PARA Core` плагин регистрирует домен `Calendar` и хранит события в `Records/Calendar/Events`
 
 ## Установка
 
@@ -36,9 +36,14 @@
    - `status: "active"`
    - `created: "YYYY-MM-DD"`
    - `date: "YYYY-MM-DD"`
-   - Опционально: `start_time: "HH:MM"`, `end_time: "HH:MM"`, `location: "Место"`, `url: "Ссылка"`, `guid: "remote-id"`
+   - Рекомендуется: `summary: "Заголовок события для календаря"`
+   - Опционально: `start_time: "HH:mm"`, `end_time: "HH:mm"`, `location: "Место"`, `url: "Ссылка"`, `guid: "remote-id"`, `project: "[[Project]]"`, `area: "[[Area]]"`
+   - Напоминания: `alarm: ["15m", "1h", "1d"]`
 3. Напишите описание события в теле заметки.
-4. Выполните команду `Sync event with calendar` для синхронизации текущего события или `Sync all events with calendar` для синхронизации всех событий.
+4. Выполните команду `Create new calendar event`, если хотите создать событие через modal-форму.
+5. Выполните команду `Sync event with calendar` для синхронизации текущего события или `Sync all events with calendar` для синхронизации всех событий.
+
+Поле `summary` используется для CalDAV-синхронизации как заголовок события. Если `summary` не задано, плагин использует имя заметки как fallback.
 
 Минимальный пример:
 
@@ -48,48 +53,52 @@ type: "calendar-event"
 status: "active"
 created: "2026-03-29"
 date: "2026-03-30"
+summary: "Проверка синка"
 start_time: "10:00"
 end_time: "11:00"
 location: "Online"
+alarm: ["15m", "1h"]
 tags: []
 ---
 ```
 
 ### Синхронизация событий
 
+- **Create new calendar event**: Открывает modal-окно для создания события. При создании заметка получает имя вида `YYYY-MM-DD HH-mm Summary`, а если в текущей заметке есть курсор, туда вставляется `![[...]]` ссылка на новое событие.
 - **Sync event with calendar**: Синхронизирует текущее активное событие с календарем.
 - **Sync all events with calendar**: Синхронизирует все события из указанной директории с календарем и создает новые файлы для событий, которые есть в календаре, но отсутствуют в Obsidian.
+
+### Telegram
+
+Если установлен `Telegram Bot Plugin`, календарный плагин добавляет:
+
+- `/event` - создать новое событие
+- `/events` - показать ближайшие предстоящие события
+- reminder-уведомления в Telegram на основе поля `alarm`
+
+Быстрый формат для `/event`:
+
+```text
+YYYY-MM-DD HH:mm-HH:mm [sync|nosync] Summary | Description | Location | 15m,1h | https://...
+```
+
+Примеры:
+
+```text
+2026-04-05 10:00-11:00 sync Team sync | Release prep | Online | 15m,1h
+2026-04-06 09:00 nosync Dentist | Bring documents | Clinic | 1d
+```
 
 ## Примечания
 
 - Плагин поддерживает только однодневные события. Многосуточные события не поддерживаются.
 - При синхронизации события из Obsidian перезаписывают события в календаре. Будьте осторожны с изменениями, внесенными в календаре.
 - Убедитесь, что имена файлов событий не содержат недопустимых символов для файловой системы.
-- Архивные legacy-заметки `calendar-event` в `Archive/Inbox/Events/...` поддерживаются на уровне совместимости в экосистеме PARA.
-
-## Локальный Docker smoke-test
-
-Для безопасной локальной проверки можно использовать workspace-скрипты:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File ..\scripts\start-docker-radicale.ps1
-```
-
-Тестовые настройки:
-
-- username: `test`
-- password: `testpass`
-- calendar URL: `http://127.0.0.1:5232/test/calendar/`
-
-Быстрая проверка CalDAV collection:
-
-```powershell
-curl.exe -i -u test:testpass -X PROPFIND -H "Depth: 0" http://127.0.0.1:5232/test/calendar/
-```
-
-Ожидаемый ответ:
-
-- `207 Multi-Status`
+- При наличии `PARA Core` плагин добавляет:
+  - template для `calendar-event`
+  - блок предстоящих событий в `Dashboard`
+  - секции предстоящих событий в `project` и `area`
+  - Telegram help/card contributions для project/area
 
 ## Лицензия
 
