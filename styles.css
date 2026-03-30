@@ -1,8 +1,33 @@
-/*
+.caldav-create-event-modal .modal {
+  width: min(680px, calc(100vw - 32px));
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.caldav-create-event-modal .setting-item-control {
+  min-width: 280px;
+}
 
-If your plugin does not need CSS, delete this file.
+.caldav-create-event-modal textarea {
+  min-height: 96px;
+}
 
-*/
+.caldav-create-event-modal .caldav-create-event-input.is-invalid {
+  border-color: var(--color-red);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-red) 45%, transparent);
+}
+
+.caldav-create-event-modal .caldav-create-event-error {
+  display: none;
+  margin-top: 6px;
+  color: var(--color-red);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.35;
+}
+
+.caldav-create-event-modal .caldav-create-event-error.is-visible {
+  display: block;
+}
+
+.caldav-create-event-hint {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+}

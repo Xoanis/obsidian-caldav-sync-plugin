@@ -258,6 +258,8 @@ export class CalendarTelegramBridge {
     const created = await this.deps.eventNoteService.createEventFile(this.deps.getEventsDirectory(), {
       ...parsed,
       ...relationOverrides,
+    }, {
+      includeTelegramAlarmStatus: true,
     });
 
     let synced = false;

@@ -6,7 +6,11 @@ import {
   type IcsEvent,
 } from "ts-ics";
 import { v4 as uuidv4 } from "uuid";
-import type { CalendarEventNote, CalendarSyncResult } from "../calendar-event";
+import {
+  validateCalendarEventInput,
+  type CalendarEventNote,
+  type CalendarSyncResult,
+} from "../calendar-event";
 import type { ObsidianCalDavPluginSettings } from "../settings";
 import { normalizeAlarmTokens, toIcsAlarm } from "../alarm";
 
@@ -19,6 +23,12 @@ export class CalDavSyncService {
     const settings = this.getSettings();
     if (!this.isConfigured(settings)) {
       console.error("CalDAV Event Sync: missing CalDAV settings");
+      return null;
+    }
+
+    const validationIssues = validateCalendarEventInput(localEvent);
+    if (validationIssues.length > 0) {
+      console.warn("CalDAV Event Sync: invalid event data", validationIssues, localEvent);
       return null;
     }
 

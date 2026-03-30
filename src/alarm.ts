@@ -23,6 +23,19 @@ export function normalizeAlarmTokens(value: unknown): string[] {
     .filter((token) => ALARM_PATTERN.test(token));
 }
 
+export function getInvalidAlarmTokens(value: unknown): string[] {
+  const tokens = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+
+  return tokens
+    .map((token) => (typeof token === "string" ? token.trim().toLowerCase() : ""))
+    .filter((token) => token.length > 0)
+    .filter((token) => !ALARM_PATTERN.test(token));
+}
+
 export function parseAlarmToken(token: string): ParsedAlarmToken | null {
   const match = token.trim().toLowerCase().match(ALARM_PATTERN);
   if (!match) {

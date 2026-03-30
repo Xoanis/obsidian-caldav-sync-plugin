@@ -14,7 +14,7 @@ import {
 } from "./src/settings";
 import { CalDavSyncService } from "./src/services/caldav-sync-service";
 import { EventNoteService } from "./src/services/event-note-service";
-import { CALENDAR_EVENT_TYPE } from "./src/calendar-event";
+import { CALENDAR_EVENT_TYPE, validateCalendarEventInput } from "./src/calendar-event";
 import { CreateEventModal, type CreateEventModalResult } from "./src/ui/create-event-modal";
 
 export default class ObsidianCalDAVPlugin extends Plugin {
@@ -25,6 +25,7 @@ export default class ObsidianCalDAVPlugin extends Plugin {
   private eventNoteService!: EventNoteService;
   private calDavSyncService!: CalDavSyncService;
   private telegramBridge: CalendarTelegramBridge | null = null;
+  private isTelegramAvailable = false;
 
   async onload() {
     await this.loadSettings();
@@ -155,6 +156,7 @@ export default class ObsidianCalDAVPlugin extends Plugin {
 
     const localGuids = new Set<string>();
     let syncedCount = 0;
+    let skippedCount = 0;
 
     for (const file of eventFiles) {
       const guid = await this.eventNoteService.getEventGuid(file);
@@ -165,12 +167,18 @@ export default class ObsidianCalDAVPlugin extends Plugin {
       const synced = await this.syncEventFile(file, false);
       if (synced) {
         syncedCount += 1;
+      } else {
+        skippedCount += 1;
       }
     }
 
     const calendar = await this.calDavSyncService.fetchCalendar();
     if (!calendar?.events?.length) {
-      new Notice(`Synced ${syncedCount} local event(s).`);
+      new Notice(
+        skippedCount > 0
+          ? `Synced ${syncedCount} local event(s), skipped ${skippedCount} invalid or missing note(s).`
+          : `Synced ${syncedCount} local event(s).`,
+      );
       return;
     }
 
@@ -183,31 +191,57 @@ export default class ObsidianCalDAVPlugin extends Plugin {
       const created = await this.eventNoteService.createEventFileFromRemoteEvent(
         this.getEventsDirectory(),
         remoteEvent,
+        {
+          includeTelegramAlarmStatus: this.isTelegramAvailable,
+        },
       );
       if (created) {
         importedCount += 1;
       }
     }
 
-    new Notice(
-      `Synced ${syncedCount} local event(s) and imported ${importedCount} remote event(s).`,
-    );
+    new Notice([
+      `Synced ${syncedCount} local event(s)`,
+      skippedCount > 0 ? `skipped ${skippedCount} invalid or missing note(s)` : null,
+      `imported ${importedCount} remote event(s).`,
+    ].filter(Boolean).join(", "));
   }
 
   private async syncEventFile(file: TFile, showSuccessNotice: boolean): Promise<boolean> {
     const event = await this.eventNoteService.readEventFile(file);
     if (!event) {
-      new Notice("Active note is not a calendar-event note.");
+      if (showSuccessNotice) {
+        new Notice(`Could not read event note: ${file.basename}`);
+      }
+      return false;
+    }
+
+    const validationIssues = validateCalendarEventInput(event);
+    if (validationIssues.length > 0) {
+      if (showSuccessNotice) {
+        new Notice(`Cannot sync "${file.basename}": ${validationIssues[0]}`);
+      }
       return false;
     }
 
     const syncResult = await this.calDavSyncService.syncEvent(event);
     if (!syncResult) {
-      new Notice(`Failed to sync event: ${file.basename}`);
+      if (showSuccessNotice) {
+        new Notice(`Failed to sync event: ${file.basename}`);
+      }
       return false;
     }
 
-    await this.eventNoteService.updateSyncMetadata(file, syncResult.guid, syncResult.url);
+    try {
+      await this.eventNoteService.updateSyncMetadata(file, syncResult.guid, syncResult.url);
+    } catch (error) {
+      console.warn(`CalDAV Event Sync: event note disappeared before metadata update "${file.path}"`, error);
+      if (showSuccessNotice) {
+        new Notice(`Event synced remotely, but the local note is missing: ${file.basename}`);
+      }
+      return true;
+    }
+
     if (showSuccessNotice) {
       new Notice(`Synced event: ${file.basename}`);
     }
@@ -223,6 +257,9 @@ export default class ObsidianCalDAVPlugin extends Plugin {
 
     new CreateEventModal(this.app, {
       initialValue,
+      showParaFields: Boolean(this.paraCoreApi),
+      projectSuggestions: this.getParaNoteSuggestions("project"),
+      areaSuggestions: this.getParaNoteSuggestions("area"),
       onSubmit: async (value) => {
         await this.handleCreateEventModalSubmit(value, sourceEditor, sourceFile?.path);
       },
@@ -231,6 +268,12 @@ export default class ObsidianCalDAVPlugin extends Plugin {
 
   private getCreateEventInitialValue(activeFile: TFile | null): Partial<CreateEventModalResult> {
     const today = moment().format("YYYY-MM-DD");
+    if (!this.paraCoreApi) {
+      return {
+        date: today,
+      };
+    }
+
     const frontmatter = activeFile
       ? this.app.metadataCache.getFileCache(activeFile)?.frontmatter
       : undefined;
@@ -254,18 +297,30 @@ export default class ObsidianCalDAVPlugin extends Plugin {
     };
   }
 
+  private getParaNoteSuggestions(type: "project" | "area"): string[] {
+    if (!this.paraCoreApi) {
+      return [];
+    }
+
+    return this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => this.app.metadataCache.getFileCache(file)?.frontmatter?.type === type)
+      .map((file) => `[[${file.basename}]]`)
+      .sort((left, right) => left.localeCompare(right));
+  }
+
   private async handleCreateEventModalSubmit(
     value: CreateEventModalResult,
     sourceEditor: MarkdownView["editor"] | undefined,
     sourcePath?: string,
   ): Promise<void> {
-    const created = await this.eventNoteService.createEventFile(this.getEventsDirectory(), value);
+    const created = await this.eventNoteService.createEventFile(this.getEventsDirectory(), value, {
+      includeTelegramAlarmStatus: this.isTelegramAvailable,
+    });
 
     if (sourceEditor && sourcePath !== created.path) {
       sourceEditor.replaceSelection(`![[${created.path}]]`);
     }
-
-    await this.app.workspace.getLeaf(true).openFile(created);
 
     if (value.syncWithCalendar) {
       const synced = await this.syncEventFile(created, false);
@@ -288,6 +343,7 @@ export default class ObsidianCalDAVPlugin extends Plugin {
     });
 
     const registered = this.telegramBridge.register();
+    this.isTelegramAvailable = registered;
     if (!registered) {
       return;
     }

@@ -14,7 +14,7 @@ interface CalendarEventFrontmatter extends BaseFrontmatter {
   url?: string | null;
   guid?: string | null;
   alarm?: string[] | null;
-  alarms_status?: string[] | null;
+  telegram_alarms_status?: string[] | null;
   project?: string | null;
   area?: string | null;
 }
@@ -40,7 +40,6 @@ export function getCalendarEventNoteType(): NoteTypeDefinition<CalendarEventFron
       url: null,
       guid: null,
       alarm: [],
-      alarms_status: [],
       project: null,
       area: null,
       tags: [],
@@ -57,7 +56,7 @@ export function getCalendarEventNoteType(): NoteTypeDefinition<CalendarEventFron
 - Location:
 - URL:
 - Alarm:
-- Alarm Status:
+- Telegram Alarm Status:
 - Project:
 - Area:
 
@@ -126,15 +125,16 @@ function validateCalendarEvent(
     });
   }
 
-  const rawAlarmStatuses = Array.isArray(frontmatter.alarms_status)
-    ? frontmatter.alarms_status
-    : typeof frontmatter.alarms_status === "string"
-      ? [frontmatter.alarms_status]
+  const alarmStatusesValue = readTelegramAlarmStatuses(frontmatter);
+  const rawAlarmStatuses = Array.isArray(alarmStatusesValue)
+    ? alarmStatusesValue
+    : typeof alarmStatusesValue === "string"
+      ? [alarmStatusesValue]
       : [];
   const hasAlarmStatusesField =
-    frontmatter.alarms_status !== undefined && frontmatter.alarms_status !== null;
+    alarmStatusesValue !== undefined && alarmStatusesValue !== null;
   const normalizedAlarmStatuses = normalizeAlarmStatuses(
-    frontmatter.alarms_status,
+    alarmStatusesValue,
     normalizedAlarmTokens.length,
   );
 
@@ -145,7 +145,7 @@ function validateCalendarEvent(
   ) {
     issues.push({
       code: "invalid-calendar-alarm-status",
-      message: "Calendar event 'alarms_status' should contain only 'pending' or 'sent'.",
+      message: "Calendar event 'telegram_alarms_status' should contain only 'pending' or 'sent'.",
       severity: "warning",
     });
   }
@@ -153,7 +153,8 @@ function validateCalendarEvent(
   if (hasAlarmStatusesField && rawAlarmStatuses.length !== normalizedAlarmStatuses.length) {
     issues.push({
       code: "calendar-alarm-status-length-mismatch",
-      message: "Calendar event 'alarms_status' should mirror the normalized 'alarm' list one-to-one.",
+      message:
+        "Calendar event 'telegram_alarms_status' should mirror the normalized 'alarm' list one-to-one.",
       severity: "warning",
     });
   }
@@ -167,4 +168,12 @@ function isTime(value: string): boolean {
 
 function renderFrontmatter(frontmatter: Record<string, unknown>): string {
   return `---\n${stringifyYaml(frontmatter).trimEnd()}\n---`;
+}
+
+function readTelegramAlarmStatuses(frontmatter: Partial<CalendarEventFrontmatter>): unknown {
+  if ("telegram_alarms_status" in frontmatter) {
+    return frontmatter.telegram_alarms_status;
+  }
+
+  return (frontmatter as Partial<CalendarEventFrontmatter> & { alarms_status?: unknown }).alarms_status;
 }

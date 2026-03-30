@@ -13,6 +13,7 @@ import {
   CALENDAR_EVENT_TYPE,
   CALENDAR_DOMAIN_ID,
   getCalendarEventSummary,
+  validateCalendarEventInput,
   type CalendarEventNote,
   type CreateCalendarEventInput,
 } from "../calendar-event";
@@ -46,15 +47,28 @@ export class EventNoteService {
   }
 
   async readEventFile(file: TFile): Promise<CalendarEventNote | null> {
-    const metadata = this.app.metadataCache.getFileCache(file);
-    const content = await this.app.vault.read(file);
-    return tryCreateCalendarEvent(file.basename, metadata, content);
+    try {
+      const metadata = this.app.metadataCache.getFileCache(file);
+      const content = await this.app.vault.read(file);
+      return tryCreateCalendarEvent(file.basename, metadata, content);
+    } catch (error) {
+      console.warn(`CalDAV Event Sync: failed to read event note "${file.path}"`, error);
+      return null;
+    }
   }
 
   async createEventFile(
     eventsDirectory: string,
     input: CreateCalendarEventInput,
+    options?: {
+      includeTelegramAlarmStatus?: boolean;
+    },
   ): Promise<TFile> {
+    const validationIssues = validateCalendarEventInput(input);
+    if (validationIssues.length > 0) {
+      throw new Error(validationIssues[0]);
+    }
+
     await this.ensureFolder(eventsDirectory);
 
     const normalizedSummary = getCalendarEventSummary(input.summary, "Untitled event");
@@ -72,11 +86,16 @@ export class EventNoteService {
       url: input.url?.trim() || null,
       guid: input.guid?.trim() || null,
       alarm: normalizedAlarms,
-      alarms_status: normalizeAlarmStatuses(input.alarms_status, normalizedAlarms.length),
       project: normalizeWikiLink(input.project),
       area: normalizeWikiLink(input.area),
       tags: [],
     };
+    if (options?.includeTelegramAlarmStatus) {
+      frontmatter.telegram_alarms_status = normalizeAlarmStatuses(
+        input.telegram_alarms_status,
+        normalizedAlarms.length,
+      );
+    }
     const fileName = buildCalendarEventFileName(
       input.date,
       input.start_time?.trim(),
@@ -93,6 +112,9 @@ export class EventNoteService {
   async createEventFileFromRemoteEvent(
     eventsDirectory: string,
     remoteEvent: IcsEvent,
+    options?: {
+      includeTelegramAlarmStatus?: boolean;
+    },
   ): Promise<TFile | null> {
     if (!remoteEvent.summary || !remoteEvent.start) {
       return null;
@@ -123,9 +145,11 @@ export class EventNoteService {
       url: remoteEvent.url,
       location: remoteEvent.location ?? null,
       alarm: normalizedAlarms,
-      alarms_status: buildPendingAlarmStatuses(normalizedAlarms.length),
       tags: [],
     };
+    if (options?.includeTelegramAlarmStatus) {
+      props.telegram_alarms_status = buildPendingAlarmStatuses(normalizedAlarms.length);
+    }
 
     if (remoteEvent.start.type === "DATE-TIME") {
       props.start_time = startMoment.format("HH:mm");
@@ -216,11 +240,15 @@ export class EventNoteService {
 
     await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
       const normalizedAlarms = normalizeAlarmTokens(frontmatter.alarm);
-      nextStatuses = normalizeAlarmStatuses(frontmatter.alarms_status, normalizedAlarms.length);
+      nextStatuses = normalizeAlarmStatuses(
+        readTelegramAlarmStatuses(frontmatter),
+        normalizedAlarms.length,
+      );
 
-      if (!areStatusListsEqual(frontmatter.alarms_status, nextStatuses)) {
-        frontmatter.alarms_status = nextStatuses;
+      if (!areStatusListsEqual(frontmatter.telegram_alarms_status, nextStatuses)) {
+        frontmatter.telegram_alarms_status = nextStatuses;
       }
+      delete frontmatter.alarms_status;
     });
 
     return nextStatuses;
@@ -235,11 +263,15 @@ export class EventNoteService {
 
     await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
       const normalizedAlarms = normalizeAlarmTokens(frontmatter.alarm);
-      nextStatuses = normalizeAlarmStatuses(frontmatter.alarms_status, normalizedAlarms.length);
+      nextStatuses = normalizeAlarmStatuses(
+        readTelegramAlarmStatuses(frontmatter),
+        normalizedAlarms.length,
+      );
       if (alarmIndex >= 0 && alarmIndex < nextStatuses.length) {
         nextStatuses[alarmIndex] = status;
       }
-      frontmatter.alarms_status = nextStatuses;
+      frontmatter.telegram_alarms_status = nextStatuses;
+      delete frontmatter.alarms_status;
     });
 
     return nextStatuses;
@@ -305,7 +337,10 @@ export function tryCreateCalendarEvent(
     status: readString(frontmatter.status),
     created: readString(frontmatter.created),
     alarm: normalizedAlarms,
-    alarms_status: normalizeAlarmStatuses(frontmatter.alarms_status, normalizedAlarms.length),
+    telegram_alarms_status: normalizeAlarmStatuses(
+      readTelegramAlarmStatuses(frontmatter),
+      normalizedAlarms.length,
+    ),
     project: normalizeWikiLink(readString(frontmatter.project)),
     area: normalizeWikiLink(readString(frontmatter.area)),
   };
@@ -396,4 +431,12 @@ function areStatusListsEqual(
   }
 
   return currentValue.every((item, index) => item === nextStatuses[index]);
+}
+
+function readTelegramAlarmStatuses(frontmatter: Record<string, unknown>): unknown {
+  if ("telegram_alarms_status" in frontmatter) {
+    return frontmatter.telegram_alarms_status;
+  }
+
+  return frontmatter.alarms_status;
 }
